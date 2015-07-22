@@ -1,0 +1,35 @@
+<?php
+
+function commerce_license_billing_pricing_field_schema($field) {
+  if ($field['type'] = 'cl_billing_pricing') {
+    $columns = array(
+      'type' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),
+      'action' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),
+      'value' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),
+    );
+
+    $indexes = array(
+      'type' => array('type'),
+      'action' => array('action'),
+    );
+
+    return array(
+      'columns' => $columns,
+      'indexes' => $indexes,
+      'foreign keys' => array(),
+    );
+  }
+}
+

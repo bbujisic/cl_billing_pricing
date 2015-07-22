@@ -1,0 +1,10 @@
+name = Commerce License Billing Pricing
+description = Adds a field type and API functions for dynamic license pricing.
+php = 5.4
+core = 7.x
+package = Commerce (contrib)
+configure = admin/commerce/config/license-billing
+
+dependencies[] = commerce_license_billing
+
+
