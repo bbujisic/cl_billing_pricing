@@ -35,6 +35,20 @@ function commerce_license_billing_pricing_field_info() {
 }
 
 /**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * The pricing options field type is always FIELD_CARDINALITY_UNLIMITED.
+ */
+function commerce_license_billing_pricing_form_field_ui_field_edit_form_alter(&$form, &$form_state) {
+  if ($form['#field']['type'] == 'cl_billing_pricing') {
+    // Hide the cardinality setting on the field settings for properties fields.
+    $form['field']['cardinality']['#default_value'] = FIELD_CARDINALITY_UNLIMITED;
+    $form['field']['cardinality']['#value'] = FIELD_CARDINALITY_UNLIMITED;
+    $form['field']['#access'] = FALSE;
+  }
+}
+
+/**
  * Implements hook_field_widget_info().
  */
 function commerce_license_billing_pricing_field_widget_info() {
@@ -47,7 +61,7 @@ function commerce_license_billing_pricing_field_widget_info() {
     'settings' => array(),
     'behaviors' => array(
       'multiple values' => FIELD_BEHAVIOR_DEFAULT,
-      'default values' => FIELD_BEHAVIOR_NONE,
+      'default value' => FIELD_BEHAVIOR_NONE,
     ),
     'weight' => -20,
   );
@@ -78,6 +92,9 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
   $item_form = $element;
   $item_form += array(
     '#type' => 'container',
+    '#attributes' => array(
+      'class' => array('container-inline'),
+    ),
   );
 
   // The "type" is a key which is used to determine whether this pricing action
@@ -97,6 +114,7 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
 
   $item_form['value'] = array(
     '#type' => 'textfield',
+    '#width' => 10,
     '#title' => t('Value'),
   );
 
