@@ -17,6 +17,11 @@ function commerce_license_billing_pricing_field_schema($field) {
         'type' => 'varchar',
         'length' => 255,
         'not null' => FALSE,
+        'serialized' => TRUE,
+      ),
+      'expires' => array(
+        'type' => 'int',
+        'not null' => FALSE,
       ),
     );
 

@@ -5,6 +5,8 @@
  * Commerce License Billing.
  */
 
+define("COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE", 'custom');
+
 /********** Field Type API Hooks **********/
 
 /**
@@ -60,7 +62,7 @@ function commerce_license_billing_pricing_field_widget_info() {
     'field types' => array('cl_billing_pricing'),
     'settings' => array(),
     'behaviors' => array(
-      'multiple values' => FIELD_BEHAVIOR_DEFAULT,
+      'multiple values' => FIELD_BEHAVIOR_CUSTOM,
       'default value' => FIELD_BEHAVIOR_NONE,
     ),
     'weight' => -20,
@@ -72,22 +74,103 @@ function commerce_license_billing_pricing_field_widget_info() {
 /**
  * Implements hook_field_widget_form().
  *
- * @todo: This.
+ * Mostly taken from field_multiple_value_form and summons each item using the
+ * commerce_license_billing_pricing_field_item_form function. Extraneous pieces
+ * such as per-item widget altering and weight/tabledrag removed.
  */
 function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $field_name = $field['field_name'];
+  $parents = $form['#parents'];
+
+  // Determine the number of widgets to display.
+  switch ($field['cardinality']) {
+    case FIELD_CARDINALITY_UNLIMITED:
+      $field_state = field_form_get_state($parents, $field_name, $langcode, $form_state);
+      $max = $field_state['items_count'];
+      break;
+
+    default:
+      $max = $field['cardinality'] - 1;
+      break;
+  }
+
+  $title = check_plain($instance['label']);
+  $description = field_filter_xss($instance['description']);
+
+  $id_prefix = implode('-', array_merge($parents, array($field_name)));
+  $wrapper_id = drupal_html_id($id_prefix . '-add-more-wrapper');
+
+  $field_elements = array();
+  for ($delta = 0; $delta <= $max; $delta++) {
+    $multiple = $field['cardinality'] > 1 || $field['cardinality'] == FIELD_CARDINALITY_UNLIMITED;
+    $element = array(
+      '#entity_type' => $instance['entity_type'],
+      '#entity' => $form['#entity'],
+      '#bundle' => $instance['bundle'],
+      '#field_name' => $field_name,
+      '#language' => $langcode,
+      '#field_parents' => $parents,
+      '#columns' => array_keys($field['columns']),
+      // For multiple fields, title and description are handled by the wrapping table.
+      '#title' => $multiple ? '' : $title,
+      '#description' => $multiple ? '' : $description,
+      // Only the first widget should be required.
+      '#required' => $delta == 0 && $instance['required'],
+      '#delta' => $delta,
+      '#weight' => $delta,
+    );
+    if ($element = commerce_license_billing_pricing_field_item_form($form, $form_state, $field, $instance, $langcode, $items, $delta, $element)) {
+      $field_elements[$delta] = $element;
+    }
+  }
+
+  if ($field_elements) {
+    $field_elements += array(
+      '#theme' => 'cl_billing_pricing_form',
+      '#field_name' => $field['field_name'],
+      '#cardinality' => $field['cardinality'],
+      '#title' => $title,
+      '#required' => $instance['required'],
+      '#description' => $description,
+      '#prefix' => '<div id="' . $wrapper_id . '">',
+      '#suffix' => '</div>',
+      '#max_delta' => $max,
+    );
+    // Add 'add more' button, if not working with a programmed form.
+    if ($field['cardinality'] == FIELD_CARDINALITY_UNLIMITED && empty($form_state['programmed'])) {
+      $field_elements['add_more'] = array(
+        '#type' => 'submit',
+        '#name' => strtr($id_prefix, '-', '_') . '_add_more',
+        '#value' => t('Add Action'),
+        '#attributes' => array('class' => array('field-add-more-submit')),
+        '#limit_validation_errors' => array(array_merge($parents, array($field_name, $langcode))),
+        '#submit' => array('field_add_more_submit'),
+        '#ajax' => array(
+          'callback' => 'field_add_more_js',
+          'wrapper' => $wrapper_id,
+          'effect' => 'fade',
+        ),
+      );
+    }
+  }
+
+  return $field_elements;
+}
+
+/**
+ * Item subcomponent of the field widget form.
+ *
+ * @todo: This.
+ */
+function commerce_license_billing_pricing_field_item_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
   if ($field['type'] != 'cl_billing_pricing') {
     // This shouldn't ever happen!
     return;
   }
 
-  // @todo: Gather available types for this field and instance.
-  // This is primarily based on the licenses, or the enabled licenses if this
-  // field is on a user entity.
-  $available_types = array(
-    "product:1" => t('Particular Product'),
-    "usage:group" => t('Particular Usage Group'),
-    "plan" => t('Plan Line Item'),
-  );
+  // Gather available types for this field and instance.
+  $available_types = commerce_license_billing_pricing_types($instance);
+  $input_name_base = $field['field_name'] . '[' . implode('][', array($langcode, $delta)) . ']';
 
   $item_form = $element;
   $item_form += array(
@@ -97,28 +180,120 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
     ),
   );
 
-  // The "type" is a key which is used to determine whether this pricing action
-  // applies to a given line item. Anticipated values are e.g. product:%id,
-  // usage:%groupname, plan, etc. @todo: Finalize this.
+  // Construct the type selector, which has options and an extra field if
+  // "Custom Type" is selected.
   $item_form['type'] = array(
+    '#type' => 'container',
+  );
+  $item_form['type']['main'] = array(
     '#type' => 'select',
     '#options' => $available_types,
-    '#title' => t('Apply To'),
+    '#default_value' => !empty($current_item['type']) ? $current_item['type'] : '',
+    '#empty_option' => t('- None -'),
+  );
+  // Construct the form element's name for use with the States API. Note that
+  // the brackets here need to be escaped for use in a jQuery selector.
+  $main_type_name = $input_name_base . "[type][main]";
+  $item_form['type']['custom'] = array(
+    '#type' => 'textfield',
+    '#size' => 5,
+    '#visible' => FALSE,
+    '#states' => array(
+      'visible' => array(
+        'select[name="' . $main_type_name . '"]' => array('value' => COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE), // @todo Get the real field name
+      ),
+    ),
   );
 
+  // Now for the action selector.
   $item_form['action'] = array(
     '#type' => 'select',
     '#options' => commerce_license_billing_pricing_action_options(), // @todo: This function
-    '#title' => t('Action'),
+    '#default_value' => !empty($current_item['action']) ? $current_item['action'] : '',
+    '#empty_option' => t('- None -'),
+    '#states' => array(
+      'invisible' => array(
+        'select[name="' . $main_type_name . '"]' => array('value' => ''),
+      ),
+    ),
   );
 
+  // We can re-use the action-is-filled-in states array:
+  $action_name = $input_name_base . "[action]";
+  $action_visible_states = array(
+    'invisible' => array(
+      'select[name="' . $action_name . '"]' => array('value' => ''),
+    ),
+  );
+
+  // @todo Multiple different types of "value" field depending on the action
+  // selected, in particular base price.
   $item_form['value'] = array(
+    '#type' => 'container',
+    '#states' => $action_visible_states,
+  );
+  $item_form['value']['default'] = array(
     '#type' => 'textfield',
-    '#width' => 10,
-    '#title' => t('Value'),
+    '#size' => 5,
+  );
+
+  $item_form['expires'] = array(
+    '#type' => 'date_popup',
+    '#default_value' => $current_item['expires'],
+    '#date_format' => 'Y-m-d',
+    '#date_label_position' => 'within',
+    '#date_year_range' => '-0:+3',
+    '#states' => $action_visible_states,
+  );
+
+  $item_form['weight'] = array(
+    '#type' => 'weight',
+    '#default_value' => $current_item['weight'],
+    '#delta' => 50,
+    '#states' => $action_visible_states,
   );
 
   return $item_form;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_license_billing_pricing_theme() {
+  return array(
+    'cl_billing_pricing_form' => array(
+      'render element' => 'element',
+      'file' => 'commerce_license_billing_pricing.theme.inc',
+    ),
+  );
+}
+
+/**
+ * Cache and return the available "types" of pricing actions for a field
+ * instance.
+ */
+function commerce_license_billing_pricing_types($instance) {
+  $cache_key = "cl_billing_pricing_types:$instance[entity_type]:$instance[bundle]";
+  $cache = cache_get($cache_key);
+
+  if (!$cache) {
+    // @todo: Set up types here.
+    $types = array(
+      "product:1" => t('Particular Product'),
+      "usage:group" => t('Particular Usage Group'),
+      "plan" => t('Plan Line Item'),
+      "custom" => t('Custom Type'),
+    );
+
+
+    // @todo: Clear these when any of the constituent settings change.
+    cache_set($cache_key, $types, 'cache', CACHE_PERMANENT);
+  }
+  else {
+    $types = $cache->data;
+  }
+
+  return $types;
 }
 
 /**
@@ -126,7 +301,6 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
  */
 function commerce_license_billing_pricing_action_options() {
   $options = array(
-    'currency' => t('Set Currency'),
     'base_price' => t('Set Base Price'),
     'price_add' => t('Adjust Price (Flat)'),
     'price_multiply' => t('Modify Price (Multiply)'),
@@ -141,24 +315,153 @@ function commerce_license_billing_pricing_action_options() {
 /********** Line item pricing logic **********/
 
 /**
- * Main pricing callback for line items
- *
- * @todo: This.
+ * Main pricing callback for line items. Used as a rules action callback. Loops
+ * through all possible pricing items defined on any license or account field to
+ * which the line item belongs, checks their validity, and then applies the
+ * actions for all valid items found.
  */
 function commerce_license_billing_pricing_process_line_item($line_item) {
+
+  $wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+  // These make convenient booleans!
+  $order = $wrapper->order->value();
+  $license = $wrapper->cl_billing_license->value();
+
   // @todo: Figure out what kind of line item this is (usage or plan).
 
+  // The names of all fields of this type which exist:
+  $pricing_fields = field_read_fields(array('type' => 'cl_billing_pricing'));
 
-  // @todo: Figure out if the license or owner of this license *have* any cl_billing_pricing-type fields on themselves.
+  // Figure out if the license *has* any cl_billing_pricing-type fields.
+  $license_actions = array();
+  if ($license) {
+    $license_instances = field_info_instances('commerce_license', $license->type);
+    foreach ($license_instances as $fieldname => $instance) {
+      if (!empty($pricing_fields[$fieldname])) {
+        // This is a pricing field. Grab its items and stack them.
+        $license_actions = array_merge($license_actions, $wrapper->cl_billing_license->{$fieldname}->value());
+      }
+    }
+  }
 
+  // Do the same thing for the order owner, if any.
+  $account_actions = array();
+  if ($order) {
+    list(,,$account_type) = entity_extract_ids('user', $wrapper->order->owner());
+    $account_instances = field_info_instances('user', $account_type);
+    foreach ($account_instances as $fieldname => $instance) {
+      if (!empty($pricing_fields[$fieldname])) {
+        $account_actions = array_merge($account_actions, $wrapper->order->owner->{$fieldname}->value());
+      }
+    }
+  }
 
-  // @todo: Dig out the pricing modifications desired for this line item type.
-
-
-  // @todo: Do this based on both the license and the license owner's user.
-
+  // Check the validity of each desired pricing action item.
+  // Actions here are just field items from the cl_billing_pricing field type.
+  $selected_items = array();
+  foreach ($account_items as $action) {
+    $action['group'] = 'account';
+    if (commerce_license_billing_pricing_check($wrapper, $action, 'account')) {
+      $selected_actions[] = $action;
+    }
+  }
+  foreach ($license_items as $action) {
+    $action['group'] = 'license';
+    if (commerce_license_billing_pricing_check($wrapper, $action, 'license')) {
+      $selected_actions[] = $action;
+    }
+  }
 
   // @todo: Apply the desired modifications.
+  foreach ($selection_actions as $action) {
+    commerce_license_billing_pricing_apply($line_item, $action);
+  }
 }
 
+/**
+ * Check if a particular pricing action can apply to a line item.
+ *
+ * @param $action A pricing action field item.
+ *
+ * @param $wrapper A wrapped line item.
+ *
+ * @return bool Whether this action item should be applied.
+ */
+function commerce_license_billing_pricing_check($action, $wrapper) {
+  $item_types = explode(':', $action['type']);
+  if ($item_types[0] == COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE) {
+    array_shift($item_types);
+  }
+  // This is the name of the condition we need a callback for.
+  $main_type = $item_types[0];
+  $hook = 'commmerce_license_billing_pricing_check_' . $main_type;
+  // Our implementation wins, if it exists.
+  if (function_exists($hook)) {
+    $cb = $hook;
+  }
+  elseif ($functions = module_implements($hook)) {
+    $cb = reset($functions);
+  }
+  else {
+    // No callback exists. This action cannot apply.
+    return FALSE;
+  }
+
+  return call_user_func($cb, $action, $wrapper);
+}
+
+/**
+ * Check a usage group action for a line item.
+ */
+function commerce_license_billing_pricing_check_usage($action, $wrapper) {
+
+}
+
+/**
+ * Check a plan action for a line item.
+ */
+function commerce_license_billing_pricing_check_plan($action, $wrapper) {
+
+}
+
+/**
+ * Check a product action against a line item.
+ */
+function commerce_license_billing_pricing_check_product($action, $wrapper) {
+
+}
+
+/**
+ * Apply a pricing action to a line item.
+ *
+ * @param $action The action field item.
+ *
+ * @param $wrapper The wrapped line item.
+ */
+function commerce_license_billing_pricing_apply($action, $wrapper) {
+  $cb = 'commerce_license_billing_pricing_apply_' . $action['action'];
+
+  call_user_func($cb, $action, $wrapper);
+}
+
+/**
+ * Apply a base price action.
+ */
+function commerce_license_billing_pricing_apply_base_price($action, $wrapper) {
+
+}
+
+/**
+ * Apply a price add action.
+ */
+function commerce_license_billing_pricing_apply_price_add($action, $wrapper) {
+
+}
+
+/**
+ * Apply a price multiply action.
+ */
+function commerce_license_billing_pricing_apply_price_multiply($action, $wrapper) {
+
+}
 
