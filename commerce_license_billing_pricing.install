@@ -3,7 +3,7 @@
 function commerce_license_billing_pricing_field_schema($field) {
   if ($field['type'] = 'cl_billing_pricing') {
     $columns = array(
-      'type' => array(
+      'condition' => array(
         'type' => 'varchar',
         'length' => 255,
         'not null' => FALSE,
@@ -13,7 +13,7 @@ function commerce_license_billing_pricing_field_schema($field) {
         'length' => 255,
         'not null' => FALSE,
       ),
-      'value' => array(
+      'data' => array(
         'type' => 'varchar',
         'length' => 255,
         'not null' => FALSE,
@@ -23,10 +23,15 @@ function commerce_license_billing_pricing_field_schema($field) {
         'type' => 'int',
         'not null' => FALSE,
       ),
+      'weight' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
     );
 
     $indexes = array(
-      'type' => array('type'),
+      'condition' => array('condition'),
       'action' => array('action'),
     );
 

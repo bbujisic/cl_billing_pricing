@@ -13,7 +13,7 @@ function theme_cl_billing_pricing_form($variables) {
   $required = !empty($element['#required']) ? theme('form_required_marker', $variables) : '';
 
   $header = array(
-    t('Apply To'),
+    t('Condition'),
     t('Action'),
     t('Values'),
     t('Expiration'),
@@ -32,10 +32,10 @@ function theme_cl_billing_pricing_form($variables) {
       $items[] = &$element[$key];
     }
   }
-  usort($items, '_field_sort_items_value_helper');
 
   // Add the items as table rows.
   foreach ($items as $key => $item) {
+    $cells = array();
     foreach (element_children($item) as $child) {
       $cells[] = drupal_render($item[$child]);
     }

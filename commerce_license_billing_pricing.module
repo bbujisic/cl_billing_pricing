@@ -51,6 +51,40 @@ function commerce_license_billing_pricing_form_field_ui_field_edit_form_alter(&$
 }
 
 /**
+ * Implements hook_field_instance_settings_form().
+ */
+function commerce_license_billing_pricing_field_instance_settings_form($field, $instance) {
+  if ($instance['entity_type'] == 'user') {
+    // If the instance is on a user entity, then we need to pick which license
+    // types it regards as valid so that plans and usage groups can be summoned
+    // appropriately.
+    $types = &drupal_static(__FUNCTION__, array());
+    // We can't re-use commerce_license_types_allowed_values() here because it
+    // requires an individual entity for its alter hook. Oh well.
+    if (empty($types)) {
+      foreach (commerce_license_get_type_plugins() as $plugin_name => $plugin_info) {
+        if (empty($plugin_info['no ui'])) {
+          $types[$plugin_name] = $plugin_info['title'];
+        }
+      }
+    }
+    $settings = $instance['settings'];
+    $form['license_types'] = array(
+      '#type' => 'select',
+      '#multiple' => TRUE,
+      '#options' => $types,
+      '#default_value' => (!empty($settings['license_types']) ? $settings['license_types'] : NULL),
+      '#title' => t('Valid License Types'),
+    );
+
+    return $form;
+  }
+  else {
+    return array();
+  }
+}
+
+/**
  * Implements hook_field_widget_info().
  */
 function commerce_license_billing_pricing_field_widget_info() {
@@ -69,6 +103,101 @@ function commerce_license_billing_pricing_field_widget_info() {
   );
 
   return $items;
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function commerce_license_billing_pricing_field_is_empty($item, $field) {
+  return (empty($item['condition']) || empty($item['action']));
+}
+
+/**
+ * Implements hook_field_validate().
+ */
+function commerce_license_billing_pricing_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  // if ($items) {
+  //   foreach ($items as $delta => &$item) {
+  //     // The condition field gets imploded into a string. The "main" subfield is
+  //     // always the first thing, followed by the contents of the subfield it
+  //     // specifies. I.e. if the main condition type is "custom" it will add the
+  //     // value from the "custom" subfield on the form.
+  //     $main = $item['condition']['main'];
+  //     $item['condition'] = (!empty($item['condition'][$main]) ? "$main:" . $item['condition'][$main] : $main);
+
+  //     // The same style of logic applies to the "values" column. Here we grab
+  //     // the values from the key matching the chosen "action":
+  //     $item['values'] = (!empty($item['values'][$item['action']]) ? $item['values'][$item['action']] : $item['values']['default']);
+
+  //     // Transform the date into a timestamp:
+  //     $item['expires'] = (!empty($item['expires']) ? strtotime($item['expires']) : NULL);
+  //   }
+  // }
+}
+
+function commerce_license_billing_pricing_field_widget_validate($element, &$form_state) {
+  $item = array();
+
+  $main = $element['condition']['main']['#value'];
+  $item['condition'] = (!empty($element['condition'][$main]['#value']) ? "$main:" . $element['condition'][$main]['#value'] : $main);
+  $item['action'] = $element['action']['#value'];
+  // Getting the crap out of the "values" element is more complicated.
+  $action = $item['action'];
+  if (!empty($element['values'][$action])) {
+    // This thing has a set of values.
+    foreach (element_children($element['values'][$action]) as $child) {
+      // We need extra work here to make certain fields behave like prices.
+      if (!empty($element['values'][$action][$child]['#price_amount']) && $element['values'][$action][$child]['#value'] !== '') {
+        if (!is_numeric($element['values'][$action][$child]['#value'])) {
+          form_error($element['values'][$action][$child], t('%title: You must enter a numeric value for the price amount.', array('%title' => $element['values'][$action][$child]['#title'])));
+        }
+        else {
+          // Convert the decimal entered to an integer-based amount. The
+          // presence of #price_amount on the element will convert it back when
+          // the form is rebuilt.
+          $currency_field = $element['values'][$action][$child]['#currency_field'];
+          $item['values'][$child] = commerce_currency_decimal_to_amount($element['values'][$action][$child]['#value'], $element['values'][$action][$currency_field]['#value']);
+        }
+      }
+      else {
+        // Everything else behaves normally.
+        $item['values'][$child] = $element['values'][$action][$child]['#value'];
+      }
+    }
+  }
+  else {
+    // This thing just uses the default as a single-value rather than array.
+    $item['values'] = $element['values']['default']['#value'];
+  }
+  $item['expires'] = (!empty($element['expires']['#value']['date']) ? strtotime($element['expires']['#value']['date']) : NULL);
+  $item['weight'] = $element['weight']['#value'];
+
+  foreach ($item as $key => $val) {
+    form_set_value($element[$key], $val, $form_state);
+  }
+}
+
+/**
+ * Implements hook_field_load().
+ */
+function commerce_license_billing_pricing_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  foreach ($entities as $id => $entity) {
+    foreach ($items[$id] as $delta => &$item) {
+      if (!empty($item['data'])) {
+        $item['values'] = unserialize($item['data']);
+      }
+      unset($item['data']);
+    }
+  }
+}
+
+/**
+ * Implements hook_field_presave().
+ */
+function commerce_license_billing_pricing_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  foreach ($items as &$item) {
+    $item['data'] = serialize($item['values']);
+  }
 }
 
 /**
@@ -119,7 +248,15 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
       '#delta' => $delta,
       '#weight' => $delta,
     );
-    if ($element = commerce_license_billing_pricing_field_item_form($form, $form_state, $field, $instance, $langcode, $items, $delta, $element)) {
+    $current_item = array(
+      'values' => array(),
+      'weight' => -50,
+      'condition' => '',
+      'action' => '',
+      'expires' => '',
+    );
+    $current_item = !empty($items[$delta]) ? $items[$delta] : $current_item;
+    if ($element = commerce_license_billing_pricing_field_item_form($field, $instance, $langcode, $current_item, $delta, $element)) {
       $field_elements[$delta] = $element;
     }
   }
@@ -159,61 +296,72 @@ function commerce_license_billing_pricing_field_widget_form(&$form, &$form_state
 
 /**
  * Item subcomponent of the field widget form.
- *
- * @todo: This.
  */
-function commerce_license_billing_pricing_field_item_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+function commerce_license_billing_pricing_field_item_form($field, $instance, $langcode, $current_item, $delta, $base_element) {
   if ($field['type'] != 'cl_billing_pricing') {
     // This shouldn't ever happen!
     return;
   }
 
-  // Gather available types for this field and instance.
-  $available_types = commerce_license_billing_pricing_types($instance);
+  // Gather available condition types for this field and instance.
+  $available_conditions = commerce_license_billing_pricing_conditions($instance);
   $input_name_base = $field['field_name'] . '[' . implode('][', array($langcode, $delta)) . ']';
 
-  $item_form = $element;
+  $item_form = $base_element;
   $item_form += array(
     '#type' => 'container',
     '#attributes' => array(
       'class' => array('container-inline'),
     ),
+    '#element_validate' => array('commerce_license_billing_pricing_field_widget_validate'),
   );
 
-  // Construct the type selector, which has options and an extra field if
-  // "Custom Type" is selected.
-  $item_form['type'] = array(
+  // Construct the condition selector, which allows selection of a condition
+  // group and some set of options for that group.
+  $item_form['condition'] = array(
     '#type' => 'container',
   );
-  $item_form['type']['main'] = array(
+  $current_condition = explode(':', $current_item['condition'], 2);
+
+  $item_form['condition']['main'] = array(
     '#type' => 'select',
-    '#options' => $available_types,
-    '#default_value' => !empty($current_item['type']) ? $current_item['type'] : '',
+    '#options' => $available_conditions['main'],
+    '#default_value' => !empty($current_condition[0]) ? $current_condition[0] : '',
     '#empty_option' => t('- None -'),
   );
   // Construct the form element's name for use with the States API. Note that
   // the brackets here need to be escaped for use in a jQuery selector.
-  $main_type_name = $input_name_base . "[type][main]";
-  $item_form['type']['custom'] = array(
-    '#type' => 'textfield',
-    '#size' => 5,
-    '#visible' => FALSE,
-    '#states' => array(
+  $main_condition_name = $input_name_base . "[condition][main]";
+
+  unset($available_conditions['main']);
+  foreach ($available_conditions as $condition => $subelement) {
+    $item_form['condition'][$condition] = $subelement;
+    $item_form['condition'][$condition]['#states'] = array(
       'visible' => array(
-        'select[name="' . $main_type_name . '"]' => array('value' => COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE), // @todo Get the real field name
+        'select[name="' . $main_condition_name . '"]' => array('value' => $condition),
       ),
-    ),
-  );
+    );
+  }
+
+  // If there is a secondary condition value, it needs to go into the default of
+  // the currently-selected condition type's extra form field. Oof.
+  if (!empty($current_condition[1])) {
+    $item_form['condition'][$current_condition[0]]['#default_value'] = $current_condition[1];
+  }
 
   // Now for the action selector.
+  $actions = commerce_license_billing_pricing_actions();
+  $action_options = array_map(function ($action_type) { return $action_type['label']; }, $actions);
+  $default_action = (!empty($current_item['action']) ? $current_item['action'] : '');
+
   $item_form['action'] = array(
     '#type' => 'select',
-    '#options' => commerce_license_billing_pricing_action_options(), // @todo: This function
-    '#default_value' => !empty($current_item['action']) ? $current_item['action'] : '',
+    '#options' => $action_options, // @todo: This function
+    '#default_value' => $default_action,
     '#empty_option' => t('- None -'),
     '#states' => array(
       'invisible' => array(
-        'select[name="' . $main_type_name . '"]' => array('value' => ''),
+        'select[name="' . $main_condition_name . '"]' => array('value' => ''),
       ),
     ),
   );
@@ -222,24 +370,73 @@ function commerce_license_billing_pricing_field_item_form(&$form, &$form_state, 
   $action_name = $input_name_base . "[action]";
   $action_visible_states = array(
     'invisible' => array(
-      'select[name="' . $action_name . '"]' => array('value' => ''),
+      array('select[name="' . $main_condition_name . '"]' => array('value' => '')),
+      array('select[name="' . $action_name . '"]' => array('value' => '')),
     ),
   );
 
   // @todo Multiple different types of "value" field depending on the action
   // selected, in particular base price.
-  $item_form['value'] = array(
+  $item_form['values'] = array(
     '#type' => 'container',
     '#states' => $action_visible_states,
   );
-  $item_form['value']['default'] = array(
+  foreach ($actions as $action_key => $action_type) {
+    if (!empty($action_type['form_element'])) {
+      $item_form['values'][$action_key] = $action_type['form_element'];
+      // Add a proper #states to this piece of values so it only shows up when
+      // its action type is selected.
+      $item_form['values'][$action_key]['#states'] = array(
+        'visible' => array(
+          'select[name="' . $action_name . '"]' => array('value' => $action_key),
+        ),
+      );
+      // The "default" value field will only be loaded for actions that don't
+      // define their own form element.
+      $non_default_actions[] = $action_key;
+    }
+  }
+
+  $default_states = array();
+  foreach ($non_default_actions as $action_key) {
+    $default_states[] = array(
+      'select[name="' . $action_name . '"]' => array('value' => $action_key),
+    );
+  }
+  $item_form['values']['default'] = array(
     '#type' => 'textfield',
     '#size' => 5,
+    '#states' => array(
+      'invisible' => $default_states,
+    ),
   );
+
+  // Now we have to populate the default values for the "values" column. These
+  // can only exist if an action is selected:
+  if ($default_action) {
+    // The default action might have its own form elements under [values]:
+    if (!empty($item_form['values'][$default_action])) {
+      foreach (element_children($item_form['values'][$default_action]) as $child) {
+        // Here we need to restore currencies to their decimal form.
+        if (!empty($item_form['values'][$default_action][$child]['#price_amount']) && !empty($current_item['values'][$child])) {
+          $currency_field = $item_form['values'][$default_action][$child]['#currency_field'];
+          $currency = commerce_currency_load($current_item['values'][$currency_field]);
+          $default_amount = commerce_currency_amount_to_decimal($current_item['values'][$child], $currency['code']);
+          $item_form['values'][$default_action][$child]['#default_value'] = number_format($default_amount, $currency['decimals'], '.', '');
+        }
+        else {
+          $item_form['values'][$default_action][$child]['#default_value'] = $current_item['values'][$child];
+        }
+      }
+    }
+    else {
+      $item_form['values']['default']['#default_value'] = $current_item['values'];
+    }
+  }
 
   $item_form['expires'] = array(
     '#type' => 'date_popup',
-    '#default_value' => $current_item['expires'],
+    '#default_value' => (empty($current_item['expires']) ? '' : date('Y-m-d', $current_item['expires'])),
     '#date_format' => 'Y-m-d',
     '#date_label_position' => 'within',
     '#date_year_range' => '-0:+3',
@@ -269,44 +466,154 @@ function commerce_license_billing_pricing_theme() {
 }
 
 /**
- * Cache and return the available "types" of pricing actions for a field
- * instance.
+ * Cache and return the available conditions types of pricing actions for a
+ * field instance.
  */
-function commerce_license_billing_pricing_types($instance) {
-  $cache_key = "cl_billing_pricing_types:$instance[entity_type]:$instance[bundle]";
+function commerce_license_billing_pricing_conditions($instance) {
+  $cache_key = "cl_billing_pricing_conditions:$instance[entity_type]:$instance[bundle]";
   $cache = cache_get($cache_key);
 
   if (!$cache) {
-    // @todo: Set up types here.
-    $types = array(
-      "product:1" => t('Particular Product'),
-      "usage:group" => t('Particular Usage Group'),
-      "plan" => t('Plan Line Item'),
-      "custom" => t('Custom Type'),
+    // @todo: Set up conditions here. The "main" array contains the initial
+    // selector options, and each other key contains the corresponding form
+    // element.
+    $conditions['main'] = array(
+      "usage" => t('Usage Group'),
+      "plan" => t('Plan'),
+      "product" => t('Product'),
+      "custom" => t('Custom Condition'),
+    );
+
+    // Figure out which products can point to this license type.
+    // If the field is on a user, the bundle will have instance settings
+    // defining the license types to get plans for.
+    $license_types = ($instance['entity_type'] == 'commerce_license') ? array($instance['bundle']) : $instance['settings']['license_types'];
+    $efq = new EntityFieldQuery();
+    $efq->entityCondition('entity_type', 'commerce_product')
+        ->fieldCondition('commerce_license_type', 'value', $license_types, 'IN')
+        ->propertyCondition('status', 1);
+    $results = $efq->execute();
+    $products = !empty($results['commerce_product']) ? commerce_product_load_multiple(array_keys($results['commerce_product'])) : array();
+    $options = array_map(function($product) { return $product->title; }, $products);
+    $conditions['plan'] = array(
+      '#title' => t('License Plan'),
+      '#type' => 'select',
+      '#options' => $options,
+    );
+    if (empty($options)) {
+      $conditions['plan']['#empty_option'] = '- No Valid Plans -';
+    }
+
+    // To get usage groups, we create a temporary license of each type (which is
+    // unsaved.)
+    $groups = array();
+    foreach ($license_types as $type) {
+      $license = entity_create('commerce_license', array('type' => $type));
+      try {
+        $groups = array_merge($groups, $license->usageGroups());
+      }
+      catch (Exception $e) {
+        // @todo: What if someone does something really evil and does logic in
+        // their usageGroups() method that relies on a saved license?
+      }
+    }
+    $group_options = array_map(function($group) { return $group['title']; }, $groups);
+
+    $conditions['usage'] = array(
+      '#title' => t('Usage Group'),
+      '#type' => 'select',
+      '#options' => $group_options,
+    );
+
+    // We mimic the autocomplete that would appear for products on a recurring
+    // line item, because we're sneaky that way.
+    $product_field = field_info_field('commerce_product');
+    $product_instance = field_info_instance('commerce_line_item', 'commerce_product', 'recurring');
+    // Note that while commerce_product_reference needs to add element
+    // validation to transform a SKU into a product ID and back again, we just
+    // store the SKU directly as part of the condition key.
+    $conditions['product'] = array(
+      '#type' => 'textfield',
+      '#autocomplete_path' => $product_instance['widget']['settings']['autocomplete_path'] . '/commerce_line_item/commerce_product/recurring',
+      '#size' => $product_instance['widget']['settings']['size'],
+    );
+
+    // The custom condition key is used to invoke a custom hook name if this
+    // condition is chosen. It's a mediocre substitute for an alter hook and a
+    // plugin system here.
+    $conditions['custom'] = array(
+      '#title' => t('Custom condition key'),
+      '#type' => 'textfield',
+      '#size' => 12,
     );
 
 
     // @todo: Clear these when any of the constituent settings change.
-    cache_set($cache_key, $types, 'cache', CACHE_PERMANENT);
+    // @todo: Caching is off until this todo is fixed.
+    // cache_set($cache_key, $conditions, 'cache', CACHE_PERMANENT);
   }
   else {
-    $types = $cache->data;
+    $conditions = $cache->data;
   }
 
-  return $types;
+  return $conditions;
 }
 
 /**
  * Get a list of valid actions for the pricing options field.
  */
-function commerce_license_billing_pricing_action_options() {
+function commerce_license_billing_pricing_actions() {
   $options = array(
-    'base_price' => t('Set Base Price'),
-    'price_add' => t('Adjust Price (Flat)'),
-    'price_multiply' => t('Modify Price (Multiply)'),
+    'base_price' => array(
+      'label' => t('Set Base Price'),
+      'form_element' => array(
+        '#type' => 'container',
+        'currency_code' => array(
+          '#type' => 'textfield',
+          '#title' => t('Currency'),
+          '#size' => 10,
+        ),
+        'amount' => array(
+          '#type' => 'textfield',
+          '#title' => t('Amount'),
+          '#size' => 10,
+          '#price_amount' => TRUE,
+          '#currency_field' => 'currency_code',
+        ),
+      ),
+    ),
+    'price_add' => array(
+      'label' => t('Adjust Price (Flat)'),
+      'form_element' => array(
+        '#type' => 'container',
+        'currency_code' => array(
+          '#type' => 'textfield',
+          '#title' => t('Currency'),
+          '#size' => 10,
+        ),
+        'amount' => array(
+          '#type' => 'textfield',
+          '#title' => t('Add Amount'),
+          '#size' => 10,
+          '#price_amount' => TRUE,
+          '#currency_field' => 'currency_code',
+        ),
+      ),
+    ),
+    'price_multiply' => array(
+      'label' => t('Modify Price (Multiply)'),
+      'form_element' => array(
+        '#type' => 'container',
+        'amount' => array(
+          '#type' => 'textfield',
+          '#title' => t('Multiply By'),
+          '#size' => 10,
+        ),
+      ),
+    ),
   );
 
-  drupal_alter('commerce_license_billing_pricing_action_options', $options);
+  drupal_alter('commerce_license_billing_pricing_actions', $options);
 
   return $options;
 }
@@ -322,10 +629,10 @@ function commerce_license_billing_pricing_action_options() {
  */
 function commerce_license_billing_pricing_process_line_item($line_item) {
 
-  $wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+  $li_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
   // These make convenient booleans!
-  $order = $wrapper->order->value();
-  $license = $wrapper->cl_billing_license->value();
+  $order = $li_wrapper->order->value();
+  $license = $li_wrapper->cl_billing_license->value();
 
   // @todo: Figure out what kind of line item this is (usage or plan).
 
@@ -339,7 +646,7 @@ function commerce_license_billing_pricing_process_line_item($line_item) {
     foreach ($license_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
-        $license_actions = array_merge($license_actions, $wrapper->cl_billing_license->{$fieldname}->value());
+        $license_actions = array_merge($license_actions, $li_wrapper->cl_billing_license->{$fieldname}->value());
       }
     }
   }
@@ -347,11 +654,11 @@ function commerce_license_billing_pricing_process_line_item($line_item) {
   // Do the same thing for the order owner, if any.
   $account_actions = array();
   if ($order) {
-    list(,,$account_type) = entity_extract_ids('user', $wrapper->order->owner());
+    list(,,$account_type) = entity_extract_ids('user', $li_wrapper->order->owner());
     $account_instances = field_info_instances('user', $account_type);
     foreach ($account_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
-        $account_actions = array_merge($account_actions, $wrapper->order->owner->{$fieldname}->value());
+        $account_actions = array_merge($account_actions, $li_wrapper->order->owner->{$fieldname}->value());
       }
     }
   }
@@ -361,40 +668,43 @@ function commerce_license_billing_pricing_process_line_item($line_item) {
   $selected_items = array();
   foreach ($account_items as $action) {
     $action['group'] = 'account';
-    if (commerce_license_billing_pricing_check($wrapper, $action, 'account')) {
+    if (commerce_license_billing_pricing_check($action, $li_wrapper)) {
       $selected_actions[] = $action;
     }
   }
   foreach ($license_items as $action) {
     $action['group'] = 'license';
-    if (commerce_license_billing_pricing_check($wrapper, $action, 'license')) {
+    if (commerce_license_billing_pricing_check($action, $li_wrapper)) {
       $selected_actions[] = $action;
     }
   }
 
   // @todo: Apply the desired modifications.
   foreach ($selection_actions as $action) {
-    commerce_license_billing_pricing_apply($line_item, $action);
+    commerce_license_billing_pricing_apply($action, $li_wrapper);
   }
 }
 
 /**
- * Check if a particular pricing action can apply to a line item.
+ * Check if a particular pricing action can apply to a line item based on its
+ * condition column.
  *
  * @param $action A pricing action field item.
  *
- * @param $wrapper A wrapped line item.
+ * @param $li_wrapper A wrapped line item.
  *
  * @return bool Whether this action item should be applied.
  */
-function commerce_license_billing_pricing_check($action, $wrapper) {
-  $item_types = explode(':', $action['type']);
-  if ($item_types[0] == COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE) {
-    array_shift($item_types);
+function commerce_license_billing_pricing_check($action, $li_wrapper) {
+  // If the "custom" condition is used, then we look for a check matching
+  // whatever is entered in the "custom" subfield.
+  $item_conditions = explode(':', $action['condition']);
+  if ($item_conditions[0] == COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE) {
+    array_shift($item_conditions);
   }
   // This is the name of the condition we need a callback for.
-  $main_type = $item_types[0];
-  $hook = 'commmerce_license_billing_pricing_check_' . $main_type;
+  $main_condition = $item_conditions[0];
+  $hook = 'commmerce_license_billing_pricing_check_' . $main_condition;
   // Our implementation wins, if it exists.
   if (function_exists($hook)) {
     $cb = $hook;
@@ -407,28 +717,60 @@ function commerce_license_billing_pricing_check($action, $wrapper) {
     return FALSE;
   }
 
-  return call_user_func($cb, $action, $wrapper);
+  return call_user_func($cb, $action, $li_wrapper);
 }
 
 /**
  * Check a usage group action for a line item.
  */
-function commerce_license_billing_pricing_check_usage($action, $wrapper) {
-
+function commerce_license_billing_pricing_check_usage($action, $li_wrapper) {
+  // @todo: This needs changes to CLB to store the usage group on the line item
+  // (possibly as part of the base price component's data array.)
 }
 
 /**
  * Check a plan action for a line item.
  */
-function commerce_license_billing_pricing_check_plan($action, $wrapper) {
+function commerce_license_billing_pricing_check_plan($action, $li_wrapper) {
+  if ($li_wrapper->getBundle() != 'recurring' || !isset($li_wrapper->cl_billing_license)) {
+    // This isn't a real recurring line item or has no plan attached (which is
+    // bad.) Fail out.
+    return FALSE;
+  }
+  $condition = explode(':', $action['condition']);
+  array_shift($condition);
+  $product_id = reset($condition);
+  if ($li_wrapper->cl_billing_license->product->raw() == $product_id) {
+    // The license this line item belongs to must have a matching plan. All line
+    // items which belong to the plan are adjusted -- to adjust only the plan
+    // line item, use the product-matching condition.
+    return TRUE;
+  }
 
+  return FALSE;
 }
 
 /**
  * Check a product action against a line item.
  */
-function commerce_license_billing_pricing_check_product($action, $wrapper) {
+function commerce_license_billing_pricing_check_product($action, $li_wrapper) {
+  if ($li_wrapper->getBundle() != 'recurring' || !isset($li_wrapper->commerce_product)) {
+    // This isn't a real recurring line item or has no product attached somehow,
+    // which is bad. Fail out.
+    return FALSE;
+  }
+  $condition = explode(':', $action['condition']);
+  array_shift($condition);
+  // This condition type stores the SKU as part of the condition key.
+  $product_sku = reset($condition);
+  if ($li_wrapper->commerce_product->sku->value() == $product_sku) {
+    // This condition checks the line item's actual product. Use this to price
+    // individual line items independent of their owning plan or their usage
+    // group.
+    return TRUE;
+  }
 
+  return FALSE;
 }
 
 /**
@@ -436,32 +778,32 @@ function commerce_license_billing_pricing_check_product($action, $wrapper) {
  *
  * @param $action The action field item.
  *
- * @param $wrapper The wrapped line item.
+ * @param $li_wrapper The wrapped line item.
  */
-function commerce_license_billing_pricing_apply($action, $wrapper) {
+function commerce_license_billing_pricing_apply($action, $li_wrapper) {
   $cb = 'commerce_license_billing_pricing_apply_' . $action['action'];
 
-  call_user_func($cb, $action, $wrapper);
+  call_user_func($cb, $action, $li_wrapper);
 }
 
 /**
  * Apply a base price action.
  */
-function commerce_license_billing_pricing_apply_base_price($action, $wrapper) {
+function commerce_license_billing_pricing_apply_base_price($action, $li_wrapper) {
 
 }
 
 /**
  * Apply a price add action.
  */
-function commerce_license_billing_pricing_apply_price_add($action, $wrapper) {
+function commerce_license_billing_pricing_apply_price_add($action, $li_wrapper) {
 
 }
 
 /**
  * Apply a price multiply action.
  */
-function commerce_license_billing_pricing_apply_price_multiply($action, $wrapper) {
+function commerce_license_billing_pricing_apply_price_multiply($action, $li_wrapper) {
 
 }
 
