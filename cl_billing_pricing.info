@@ -7,4 +7,4 @@ configure = admin/commerce/config/license-billing
 
 dependencies[] = commerce_license_billing
 
-files[] = commerce_license_billing.theme.inc
+files[] = cl_billing_pricing.theme.inc

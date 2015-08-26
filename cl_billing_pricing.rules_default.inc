@@ -8,10 +8,10 @@
 /**
  * Implements hook_default_rules_configuration().
  */
-function commerce_license_billing_pricing_default_rules_configuration() {
+function cl_billing_pricing_default_rules_configuration() {
   $items = array();
 
-  $items['commerce_license_billing_pricing_process'] = entity_import('rules_config', '{ "commerce_license_billing_pricing_process" : {
+  $items['cl_billing_pricing_process'] = entity_import('rules_config', '{ "cl_billing_pricing_process" : {
       "LABEL" : "Process license- and user-specific pricing field",
       "PLUGIN" : "reaction rule",
       "WEIGHT" : "-50",
@@ -33,7 +33,7 @@ function commerce_license_billing_pricing_default_rules_configuration() {
         }
       ],
       "DO" : [
-        { "commerce_license_billing_pricing_rules_process_line_item" : {
+        { "cl_billing_pricing_rules_process_line_item" : {
             "commerce_line_item" : [ "commerce_line_item" ],
           }
         }

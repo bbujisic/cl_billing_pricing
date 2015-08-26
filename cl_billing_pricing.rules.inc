@@ -3,8 +3,8 @@
 /**
  * Implements hook_rules_action_info().
  */
-function commerce_license_billing_pricing_rules_action_info() {
-  $actions['commerce_license_billing_pricing_rules_process_line_item'] = array(
+function cl_billing_pricing_rules_action_info() {
+  $actions['cl_billing_pricing_rules_process_line_item'] = array(
     'label' => t('Price a license-generated line item based on its pricing specification fields'),
     'parameter' => array(
       'commerce_line_item' => array(
@@ -23,7 +23,7 @@ function commerce_license_billing_pricing_rules_action_info() {
  * to implement this logic as a Rules action, which is the default pricing
  * model used by CLB.
  */
-function commerce_license_billing_pricing_rules_process_line_item($line_item) {
-  commerce_license_billing_pricing_process_line_item($line_item);
+function cl_billing_pricing_rules_process_line_item($line_item) {
+  cl_billing_pricing_process_line_item($line_item);
 }
 
