@@ -533,6 +533,7 @@ function commerce_license_billing_pricing_conditions($instance) {
     // validation to transform a SKU into a product ID and back again, we just
     // store the SKU directly as part of the condition key.
     $conditions['product'] = array(
+      '#title' => 'Selected Product',
       '#type' => 'textfield',
       '#autocomplete_path' => $product_instance['widget']['settings']['autocomplete_path'] . '/commerce_line_item/commerce_product/recurring',
       '#size' => $product_instance['widget']['settings']['size'],
