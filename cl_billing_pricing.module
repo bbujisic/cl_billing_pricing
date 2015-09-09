@@ -640,7 +640,9 @@ function cl_billing_pricing_process_line_item($line_item) {
     foreach ($license_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
-        $license_actions = array_merge($license_actions, $li_wrapper->cl_billing_license->{$fieldname}->value());
+        $new_actions = $li_wrapper->cl_billing_license->{$fieldname}->value();
+        array_walk($new_actions, function($action) use($instance) { $action['component'] = $instance['settings']['component']; });
+        $license_actions = array_merge($license_actions, $new_actions);
       }
     }
   }
@@ -652,7 +654,9 @@ function cl_billing_pricing_process_line_item($line_item) {
     $account_instances = field_info_instances('user', $account_type);
     foreach ($account_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
-        $account_actions = array_merge($account_actions, $li_wrapper->order->owner->{$fieldname}->value());
+        $new_actions = $li_wrapper->order->owner->{$fieldname}->value();
+        array_walk($new_actions, function($action) use($instance) { $action['component'] = $instance['settings']['component']; });
+        $account_actions = array_merge($account_actions, $new_actions);
       }
     }
   }
@@ -787,20 +791,24 @@ function cl_billing_pricing_apply($action, $li_wrapper) {
  * Apply a base price action.
  */
 function cl_billing_pricing_apply_base_price($action, $li_wrapper) {
-
+  module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
+  commerce_line_item_unit_price_currency_code($li_wrapper->value(), $actions['values']['currency_code']);
+  commerce_line_item_unit_price_amount($li_wrapper->value(), $action['values']['amount'], 'base_price', COMMERCE_ROUND_NONE);
 }
 
 /**
  * Apply a price add action.
  */
 function cl_billing_pricing_apply_price_add($action, $li_wrapper) {
-
+  module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
+  commerce_line_item_unit_price_add($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_NONE);
 }
 
 /**
  * Apply a price multiply action.
  */
 function cl_billing_pricing_apply_price_multiply($action, $li_wrapper) {
-
+  module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
+  commerce_line_item_unit_price_multiply($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_HALF_UP);
 }
 
