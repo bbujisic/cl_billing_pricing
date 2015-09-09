@@ -25,9 +25,6 @@ function cl_billing_pricing_field_info() {
     'label' => t('Recurring license pricing options'),
     'description' => t('This field stores a variety of options used to price recurring license line items.'),
     'settings' => array(),
-    // @todo: If on a user, this field needs to select the license types for which its makes its options available
-    // @todo: Also let the user input the name of a price component which is used to discount line items using the
-    // Adjust and Modify actions. By default we use "base_price" for this.
     'instance_settings' => array(),
     'default_widget' => 'cl_billing_pricing_select',
     'default_formatter' => 'hidden',
@@ -76,12 +73,15 @@ function cl_billing_pricing_field_instance_settings_form($field, $instance) {
       '#default_value' => (!empty($settings['license_types']) ? $settings['license_types'] : NULL),
       '#title' => t('Valid License Types'),
     );
+  }
+  $form['component'] = array(
+    '#type' => 'textfield',
+    '#default_value' => (!empty($settings['component']) ? $settings['component'] : 'base_price'),
+    '#title' => t('Price Component Key'),
+    '#description' => t('Change the price component used to apply modifications generating by this field.'),
+  );
 
-    return $form;
-  }
-  else {
-    return array();
-  }
+  return $form;
 }
 
 /**
@@ -112,28 +112,6 @@ function cl_billing_pricing_field_is_empty($item, $field) {
   return (empty($item['condition']) || empty($item['action']));
 }
 
-/**
- * Implements hook_field_validate().
- */
-function cl_billing_pricing_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
-  // if ($items) {
-  //   foreach ($items as $delta => &$item) {
-  //     // The condition field gets imploded into a string. The "main" subfield is
-  //     // always the first thing, followed by the contents of the subfield it
-  //     // specifies. I.e. if the main condition type is "custom" it will add the
-  //     // value from the "custom" subfield on the form.
-  //     $main = $item['condition']['main'];
-  //     $item['condition'] = (!empty($item['condition'][$main]) ? "$main:" . $item['condition'][$main] : $main);
-
-  //     // The same style of logic applies to the "values" column. Here we grab
-  //     // the values from the key matching the chosen "action":
-  //     $item['values'] = (!empty($item['values'][$item['action']]) ? $item['values'][$item['action']] : $item['values']['default']);
-
-  //     // Transform the date into a timestamp:
-  //     $item['expires'] = (!empty($item['expires']) ? strtotime($item['expires']) : NULL);
-  //   }
-  // }
-}
 
 function cl_billing_pricing_field_widget_validate($element, &$form_state) {
   $item = array();
@@ -356,7 +334,7 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
 
   $item_form['action'] = array(
     '#type' => 'select',
-    '#options' => $action_options, // @todo: This function
+    '#options' => $action_options,
     '#default_value' => $default_action,
     '#empty_option' => t('- None -'),
     '#states' => array(
@@ -375,8 +353,10 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
     ),
   );
 
-  // @todo Multiple different types of "value" field depending on the action
-  // selected, in particular base price.
+  // The "values" form element is assembled based on what the selected action
+  // type needs, usually some combination of amount and currency numbers. These
+  // are manipulated onto the actual values key later, and back into defaults
+  // for the form element below.
   $item_form['values'] = array(
     '#type' => 'container',
     '#states' => $action_visible_states,
@@ -474,7 +454,7 @@ function cl_billing_pricing_conditions($instance) {
   $cache = cache_get($cache_key);
 
   if (!$cache) {
-    // @todo: Set up conditions here. The "main" array contains the initial
+    // We set up conditions here. The "main" array contains the initial
     // selector options, and each other key contains the corresponding form
     // element.
     $conditions['main'] = array(
@@ -548,16 +528,27 @@ function cl_billing_pricing_conditions($instance) {
       '#size' => 12,
     );
 
-
-    // @todo: Clear these when any of the constituent settings change.
-    // @todo: Caching is off until this todo is fixed.
-    // cache_set($cache_key, $conditions, 'cache', CACHE_PERMANENT);
+    // This is cleared on a general cache clear, and also whenever a product
+    // entity with the "commerce_license_type" field is modified.
+    cache_set($cache_key, $conditions, 'cache', CACHE_PERMANENT);
   }
   else {
     $conditions = $cache->data;
   }
 
   return $conditions;
+}
+
+/**
+ * Implements hook_commerce_product_update().
+ *
+ * Used to clear the pricing conditions cache when a product that affects it was
+ * modified.
+ */
+function cl_billing_pricing_commerce_product_update($product) {
+  if (!empty($product->commerce_license_type)) {
+    cache_clear_all('cl_billing_pricing_conditions', 'cache', TRUE);
+  }
 }
 
 /**
@@ -636,6 +627,8 @@ function cl_billing_pricing_process_line_item($line_item) {
   $license = $li_wrapper->cl_billing_license->value();
 
   // @todo: Figure out what kind of line item this is (usage or plan).
+  // @todo: Remember why I made this comment - it looks like we don't need to do
+  // this here.
 
   // The names of all fields of this type which exist:
   $pricing_fields = field_read_fields(array('type' => 'cl_billing_pricing'));
@@ -680,7 +673,10 @@ function cl_billing_pricing_process_line_item($line_item) {
     }
   }
 
-  // @todo: Apply the desired modifications.
+  // Sort the items by their weight. This is a universal sort for all items, to
+  // provide maximum flexibility.
+  usort($selected_actions, function($a, $b) { return $a['weight'] - $b['weight']; });
+
   foreach ($selection_actions as $action) {
     cl_billing_pricing_apply($action, $li_wrapper);
   }
