@@ -112,7 +112,6 @@ function cl_billing_pricing_field_is_empty($item, $field) {
   return (empty($item['condition']) || empty($item['action']));
 }
 
-
 function cl_billing_pricing_field_widget_validate($element, &$form_state) {
   $item = array();
 
@@ -268,7 +267,8 @@ function cl_billing_pricing_field_widget_form(&$form, &$form_state, $field, $ins
       );
     }
   }
-
+  // @todo: Temporary checking on #states and stuff.
+  dpm($field_elements);
   return $field_elements;
 }
 
@@ -489,12 +489,19 @@ function cl_billing_pricing_conditions($instance) {
     $groups = array();
     foreach ($license_types as $type) {
       $license = entity_create('commerce_license', array('type' => $type));
-      try {
-        $groups = array_merge($groups, $license->usageGroups());
+      if ($license instanceof CommerceLicenseBillingUsageGroupNamesInterface || method_exists($license, 'usageGroupNames')) {
+        $groups = array_merge($groups, $license->usageGroupNames());
       }
-      catch (Exception $e) {
-        // @todo: What if someone does something really evil and does logic in
-        // their usageGroups() method that relies on a saved license?
+      else {
+        // We try to get usage groups from the normal method, but this doesn't
+        // work if there is dynamic logic that relies on a particular license or
+        // product.
+        try {
+          $groups = array_merge($groups, $license->usageGroups());
+        }
+        catch (Exception $e) {
+          // Do nothing.
+        }
       }
     }
     $group_options = array_map(function($group) { return $group['title']; }, $groups);
@@ -725,8 +732,25 @@ function cl_billing_pricing_check($action, $li_wrapper) {
  * Check a usage group action for a line item.
  */
 function cl_billing_pricing_check_usage($action, $li_wrapper) {
-  // @todo: This needs changes to CLB to store the usage group on the line item
-  // (possibly as part of the base price component's data array.)
+  $condition = explode(':', $action['condition']);
+  array_shift($condition);
+  $usage_group = reset($condition);
+
+  $price = $li_wrapper->commerce_unit_price->value();
+
+  // We iterate over price components. The first "base_price" component we find
+  // will have the CLB charge attached to its data array. Here we look for a
+  // usage group name. If it matches the check passes.
+  foreach ($price['data']['components'] as $comp) {
+    if ($comp['name'] == 'base_price') {
+      if (!empty($comp['price']['data']['charge']['usage_group'])) {
+        if ($comp['price']['data']['charge']['usage_group'] == $usage_group) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }
+  }
 }
 
 /**
@@ -810,5 +834,17 @@ function cl_billing_pricing_apply_price_add($action, $li_wrapper) {
 function cl_billing_pricing_apply_price_multiply($action, $li_wrapper) {
   module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
   commerce_line_item_unit_price_multiply($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_HALF_UP);
+}
+
+/**
+ * A minimal interface used to return the list of usage groups a license type
+ * supports.
+ *
+ * @return An array of usage groups containing only the "title", keyed by the
+ * usage group name. (I.e. the same as ->usageGroups()) but without the rest of
+ * the group information.
+ */
+interface CommerceLicenseBillingUsageGroupNamesInterface {
+  public static function usageGroupNames();
 }
 
