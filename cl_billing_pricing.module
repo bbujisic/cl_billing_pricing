@@ -74,6 +74,20 @@ function cl_billing_pricing_field_instance_settings_form($field, $instance) {
       '#title' => t('Valid License Types'),
     );
   }
+  
+  // We want to allow filtering out some of the licensable products.
+  if(!empty($settings['license_types'])) {
+    $license_types = ($instance['entity_type'] == 'commerce_license') ? array($instance['bundle']) : $settings['license_types'];
+    $form['licensable_products'] = array(
+      '#type' => 'select',
+      '#multiple' => TRUE,
+      '#options' => _cl_billing_pricing_get_product_options($license_types),
+      '#title' => t('Licensable products'),
+      '#description' => t('Include following products in Plans.'),
+      '#default_value' => (!empty($settings['licensable_products']) ? $settings['licensable_products'] : NULL),
+    );
+  }
+  
   $form['component'] = array(
     '#type' => 'textfield',
     '#default_value' => (!empty($settings['component']) ? $settings['component'] : 'base_price'),
@@ -468,13 +482,20 @@ function cl_billing_pricing_conditions($instance) {
     // If the field is on a user, the bundle will have instance settings
     // defining the license types to get plans for.
     $license_types = ($instance['entity_type'] == 'commerce_license') ? array($instance['bundle']) : $instance['settings']['license_types'];
-    $efq = new EntityFieldQuery();
-    $efq->entityCondition('entity_type', 'commerce_product')
-        ->fieldCondition('commerce_license_type', 'value', $license_types, 'IN')
-        ->propertyCondition('status', 1);
-    $results = $efq->execute();
-    $products = !empty($results['commerce_product']) ? commerce_product_load_multiple(array_keys($results['commerce_product'])) : array();
-    $options = array_map(function($product) { return $product->title; }, $products);
+  
+    $options = _cl_billing_pricing_get_product_options($license_types);
+    if (!empty($instance['settings']['licensable_products'])) {
+      $allowed_options = $instance['settings']['licensable_products'];
+      foreach ($allowed_options as $key => $option) {
+        if(!empty($options[$key])) {
+          $allowed_options[$key] = $options[$key];
+        }
+        else {
+          unset($allowed_options[$key]);
+        }
+      }
+      $options = $allowed_options;
+    }
     $conditions['plan'] = array(
       '#title' => t('License Plan'),
       '#type' => 'select',
@@ -835,6 +856,19 @@ function cl_billing_pricing_apply_price_multiply($action, $li_wrapper) {
   module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
   commerce_line_item_unit_price_multiply($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_HALF_UP);
 }
+
+function _cl_billing_pricing_get_product_options($license_types) {
+  $efq = new EntityFieldQuery();
+  $efq->entityCondition('entity_type', 'commerce_product')
+    ->fieldCondition('commerce_license_type', 'value', $license_types, 'IN')
+    ->propertyCondition('status', 1);
+  $results = $efq->execute();
+  $products = !empty($results['commerce_product']) ? commerce_product_load_multiple(array_keys($results['commerce_product'])) : array();
+  $options = array_map(function($product) { return $product->title; }, $products);
+  
+  return $options;
+}
+
 
 /**
  * A minimal interface used to return the list of usage groups a license type
