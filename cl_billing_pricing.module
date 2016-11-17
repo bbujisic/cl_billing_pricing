@@ -28,10 +28,66 @@ function cl_billing_pricing_field_info() {
     'instance_settings' => array(),
     'default_widget' => 'cl_billing_pricing_select',
     'default_formatter' => 'hidden',
+    'property_type' => 'cl_billing_pricing',
+    'property_callbacks' => array('cl_billing_pricing_property_info_callback'),
   );
 
   return $items;
 }
+
+/**
+ * Callback to alter the property info of cl_billing_pricing fields.
+ *
+ * @see cl_billing_pricing_field_info().
+ */
+function cl_billing_pricing_property_info_callback(&$info, $entity_type, $field, $instance, $field_type) {
+  $name = $field['field_name'];
+  $property = &$info[$entity_type]['bundles'][$instance['bundle']]['properties'][$name];
+  
+  $property['type'] = 'list<cl_billing_pricing>';
+  $property['getter callback'] = 'entity_metadata_field_verbatim_get';
+  $property['setter callback'] = 'entity_metadata_field_verbatim_set';
+  $property['property info'] = cl_billing_pricing_data_property_info();
+  
+  unset($property['query callback']);
+}
+
+/**
+ * Defines info for the properties of the cl_billing_pricing field data structure.
+ */
+function cl_billing_pricing_data_property_info($name = NULL) {
+  // Build an array of basic property information for the cl_billing_pricing field.
+  $properties = array(
+    'condition' => array(
+      'label' => t('Condition'),
+    ),
+    'action' => array(
+      'label' => t('Action'),
+    ),
+    'data' => array(
+      'label' => t('Data'),
+    ),
+    'expires' => array(
+      'label' => t('Expires'),
+    ),
+    'weight' => array(
+      'label' => t('Weight'),
+    ),
+  );
+  
+  // Add the default values for each of the field properties.
+  foreach ($properties as $key => &$value) {
+    $value += array(
+      'description' => !empty($name) ? t('!label of field %name', array('!label' => $value['label'], '%name' => $name)) : '',
+      'type' => 'text',
+      'getter callback' => 'entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    );
+  }
+  
+  return $properties;
+}
+
 
 /**
  * Implements hook_form_FORM_ID_alter().
@@ -513,16 +569,8 @@ function cl_billing_pricing_conditions($instance) {
       if ($license instanceof CommerceLicenseBillingUsageGroupNamesInterface || method_exists($license, 'usageGroupNames')) {
         $groups = array_merge($groups, $license->usageGroupNames());
       }
-      else {
-        // We try to get usage groups from the normal method, but this doesn't
-        // work if there is dynamic logic that relies on a particular license or
-        // product.
-        try {
-          $groups = array_merge($groups, $license->usageGroups());
-        }
-        catch (Exception $e) {
-          // Do nothing.
-        }
+      elseif ($license instanceof CommerceLicenseBillingUsageInterface) {
+        $groups = array_merge($groups, $license->usageGroups());
       }
     }
     $group_options = array_map(function($group) { return $group['title']; }, $groups);
@@ -678,7 +726,7 @@ function cl_billing_pricing_process_line_item($line_item) {
   // Do the same thing for the order owner, if any.
   $account_actions = array();
   if ($order) {
-    list(,,$account_type) = entity_extract_ids('user', $li_wrapper->order->owner());
+    list(, , $account_type) = entity_extract_ids('user', $li_wrapper->order->owner);
     $account_instances = field_info_instances('user', $account_type);
     foreach ($account_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
