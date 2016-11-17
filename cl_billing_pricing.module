@@ -776,6 +776,10 @@ function cl_billing_pricing_process_line_item($line_item) {
  *   Whether this action item should be applied.
  */
 function cl_billing_pricing_check($action, $li_wrapper) {
+  // Skip validity check if the action expired.
+  if ($action['expires'] + 86399 < time()) {
+    return FALSE;
+  }
   // If the "custom" condition is used, then we look for a check matching
   // whatever is entered in the "custom" subfield.
   $item_conditions = explode(':', $action['condition']);
