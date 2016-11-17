@@ -14,6 +14,8 @@ function cl_billing_pricing_rules_action_info() {
     ),
     'group' => t('Commerce License Billing'),
   );
+  
+  return $actions;
 }
 
 /**
