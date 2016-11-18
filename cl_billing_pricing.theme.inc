@@ -21,8 +21,6 @@ function theme_cl_billing_pricing_form($variables) {
   );
   $rows = array();
 
-  // Sort items according to '_weight' (needed when the form comes back after
-  // preview or failed validation)
   $items = array();
   foreach (element_children($element) as $key) {
     if ($key === 'add_more') {
@@ -32,6 +30,10 @@ function theme_cl_billing_pricing_form($variables) {
       $items[] = &$element[$key];
     }
   }
+  
+  // Sort items according to '_weight' (needed when the form comes back after
+  // preview or failed validation)
+  usort($items, function($a, $b) {return $a['weight']['#value'] - $b['weight']['#value']; });
 
   // Add the items as table rows.
   foreach ($items as $key => $item) {
