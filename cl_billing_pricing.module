@@ -139,7 +139,7 @@ function cl_billing_pricing_field_instance_settings_form($field, $instance) {
       '#multiple' => TRUE,
       '#options' => _cl_billing_pricing_get_product_options($license_types),
       '#title' => t('Licensable products'),
-      '#description' => t('Include following products in Plans.'),
+      '#description' => t('Include following products in Plans. If none selected, all available plans will be included.'),
       '#default_value' => (!empty($settings['licensable_products']) ? $settings['licensable_products'] : NULL),
     );
   }
