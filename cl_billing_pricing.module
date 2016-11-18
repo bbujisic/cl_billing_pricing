@@ -712,15 +712,21 @@ function cl_billing_pricing_process_line_item($line_item) {
   $selected_actions = array();
 
   // Figure out if the license *has* any cl_billing_pricing-type fields.
-  $license_actions = array();
   if ($license) {
     $license_instances = field_info_instances('commerce_license', $license->type);
     foreach ($license_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
         $new_actions = $li_wrapper->cl_billing_license->{$fieldname}->value();
-        array_walk($new_actions, function($action) use($instance) { $action['component'] = $instance['settings']['component']; });
-        $license_actions = array_merge($license_actions, $new_actions);
+        foreach ($new_actions as $key => $action) {
+          $action['component'] = $instance['settings']['component'];
+          $action['group'] = 'license';
+          // Check the validity of each desired pricing action item.
+          // Actions here are just field items from the cl_billing_pricing field type.
+          if (cl_billing_pricing_check($action, $li_wrapper)) {
+            $selected_actions[] = $action;
+          }
+        }
       }
     }
   }
@@ -752,16 +758,6 @@ function cl_billing_pricing_process_line_item($line_item) {
   }
   
   return;
-  
-
-  
-  // @todo: BAAAD! Fix it once you get back to license things.
-  foreach ($license_items as $action) {
-    $action['group'] = 'license';
-    if (cl_billing_pricing_check($action, $li_wrapper)) {
-      $selected_actions[] = $action;
-    }
-  }
 }
 
 /**
