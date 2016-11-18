@@ -216,7 +216,19 @@ function cl_billing_pricing_field_widget_validate($element, &$form_state) {
     // This thing just uses the default as a single-value rather than array.
     $item['values'] = $element['values']['default']['#value'];
   }
-  $item['expires'] = (!empty($element['expires']['#value']['date']) ? strtotime($element['expires']['#value']['date']) : NULL);
+  
+  if(!empty($element['expires']['#value']['date'])) {
+    // The action expires 86399 seconds after the beginning of expiry day in timezone of the website.
+    $tz_user = date_default_timezone_get();
+    $tz_site = variable_get('date_default_timezone', @date_default_timezone_get());
+    date_default_timezone_set($tz_site);
+    $item['expires'] = strtotime($element['expires']['#value']['date']) + 86399;
+    date_default_timezone_set($tz_user);
+  }
+  else {
+    $item['expires'] = NULL;
+  }
+  
   $item['weight'] = $element['weight']['#value'];
 
   foreach ($item as $key => $val) {
@@ -483,10 +495,19 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
       $item_form['values']['default']['#default_value'] = $current_item['values'];
     }
   }
-
+  
+  // Expiry times are being stored as last second of the given date, relative to site's timezone.
+  $default_date = '';
+  if(!empty($current_item['expires'])) {
+    $tz_user = date_default_timezone_get();
+    $tz_site = variable_get('date_default_timezone', @date_default_timezone_get());
+    date_default_timezone_set($tz_site);
+    $default_date =  date('Y-m-d', $current_item['expires']);
+    date_default_timezone_set($tz_user);
+  }
   $item_form['expires'] = array(
     '#type' => 'date_popup',
-    '#default_value' => (empty($current_item['expires']) ? '' : date('Y-m-d', $current_item['expires'])),
+    '#default_value' => $default_date,
     '#date_format' => 'Y-m-d',
     '#date_label_position' => 'within',
     '#date_year_range' => '-0:+3',
@@ -773,7 +794,7 @@ function cl_billing_pricing_process_line_item($line_item) {
  */
 function cl_billing_pricing_check($action, $li_wrapper) {
   // Skip validity check if the action expired.
-  if ($action['expires'] + 86399 < time()) {
+  if ($action['expires'] < time()) {
     return FALSE;
   }
   // If the "custom" condition is used, then we look for a check matching
