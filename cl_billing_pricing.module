@@ -652,15 +652,19 @@ function cl_billing_pricing_commerce_product_update($product) {
  * Get a list of valid actions for the pricing options field.
  */
 function cl_billing_pricing_actions() {
+  // Provide enabled currencies only.
+  $currencies = commerce_currencies(TRUE);
+  $currency_options = array('' => ' - ' . t('Default') . ' - ');
+  $currency_options += drupal_map_assoc(array_keys($currencies));
   $options = array(
     'base_price' => array(
       'label' => t('Set Base Price'),
       'form_element' => array(
         '#type' => 'container',
         'currency_code' => array(
-          '#type' => 'textfield',
+          '#type' => 'select',
+          '#options' => $currency_options,
           '#title' => t('Currency'),
-          '#size' => 10,
         ),
         'amount' => array(
           '#type' => 'textfield',
@@ -676,9 +680,9 @@ function cl_billing_pricing_actions() {
       'form_element' => array(
         '#type' => 'container',
         'currency_code' => array(
-          '#type' => 'textfield',
+          '#type' => 'select',
+          '#options' => $currency_options,
           '#title' => t('Currency'),
-          '#size' => 10,
         ),
         'amount' => array(
           '#type' => 'textfield',
