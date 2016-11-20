@@ -309,7 +309,7 @@ function cl_billing_pricing_field_widget_form(&$form, &$form_state, $field, $ins
     );
     $current_item = array(
       'values' => array(),
-      'weight' => -50,
+      'weight' => 50,
       'condition' => '',
       'action' => '',
       'expires' => '',
