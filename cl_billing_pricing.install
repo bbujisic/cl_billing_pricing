@@ -4,7 +4,7 @@
  * Implements hook_field_schema().
  */
 function cl_billing_pricing_field_schema($field) {
-  if ($field['type'] = 'cl_billing_pricing') {
+  if ($field['type'] == 'cl_billing_pricing') {
     $columns = array(
       'condition' => array(
         'type' => 'varchar',
