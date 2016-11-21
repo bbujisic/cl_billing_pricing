@@ -360,6 +360,7 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
     '#type' => 'container',
     '#states' => $action_visible_states,
   );
+  $non_default_actions = [];
   foreach ($actions as $action_key => $action_type) {
     if (!empty($action_type['form_element'])) {
       $item_form['values'][$action_key] = $action_type['form_element'];
