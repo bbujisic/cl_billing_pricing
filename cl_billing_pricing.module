@@ -734,7 +734,7 @@ function cl_billing_pricing_process_line_item($line_item) {
   // The names of all fields of this type which exist:
   $pricing_fields = field_read_fields(array('type' => 'cl_billing_pricing'));
   
-  $selected_actions = array();
+  $selected_pricing_field_items = array();
 
   // Figure out if the license *has* any cl_billing_pricing-type fields.
   if ($license) {
@@ -742,14 +742,13 @@ function cl_billing_pricing_process_line_item($line_item) {
     foreach ($license_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
-        $new_actions = $li_wrapper->cl_billing_license->{$fieldname}->value();
-        foreach ($new_actions as $key => $action) {
-          $action['component'] = $instance['settings']['component'];
-          $action['group'] = 'license';
-          // Check the validity of each desired pricing action item.
-          // Actions here are just field items from the cl_billing_pricing field type.
-          if (cl_billing_pricing_check($action, $li_wrapper)) {
-            $selected_actions[] = $action;
+        $new_pricing_field_items = $li_wrapper->cl_billing_license->{$fieldname}->value();
+        foreach ($new_pricing_field_items as $key => $pricing_field_item) {
+          $pricing_field_item['component'] = $instance['settings']['component'];
+          $pricing_field_item['group'] = 'license';
+          // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
+          if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
+            $selected_pricing_field_items[] = $pricing_field_item;
           }
         }
       }
@@ -762,48 +761,47 @@ function cl_billing_pricing_process_line_item($line_item) {
     $account_instances = field_info_instances('user', $account_type);
     foreach ($account_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
-        $new_actions = $li_wrapper->order->owner->{$fieldname}->value();
-        foreach ($new_actions as $key => $action) {
-          $action['component'] = $instance['settings']['component'];
-          $action['group'] = 'account';
-          // Check the validity of each desired pricing action item.
-          // Actions here are just field items from the cl_billing_pricing field type.
-          if (cl_billing_pricing_check($action, $li_wrapper)) {
-            $selected_actions[] = $action;
+        $new_pricing_field_items = $li_wrapper->order->owner->{$fieldname}->value();
+        foreach ($new_pricing_field_items as $key => $pricing_field_item) {
+          $pricing_field_item['component'] = $instance['settings']['component'];
+          $pricing_field_item['group'] = 'account';
+          // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
+          if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
+            $selected_pricing_field_items[] = $pricing_field_item;
           }
         }
       }
     }
   }
-  // Sort selected actions by weight.
-  usort($selected_actions, function($a, $b) { return $a['weight'] - $b['weight']; });
-  // Apply actions to line items.
-  foreach ($selected_actions as $action) {
-    cl_billing_pricing_apply($action, $li_wrapper);
+  // Sort selected pricing field items by weight.
+  usort($selected_pricing_field_items, function($a, $b) { return $a['weight'] - $b['weight']; });
+  // Apply pricing rules to line items.
+  foreach ($selected_pricing_field_items as $pricing_field_item) {
+    cl_billing_pricing_apply($pricing_field_item, $li_wrapper);
   }
   
   return;
 }
 
 /**
- * Check if a particular pricing action can apply to a line item based on its
+ * Check if a particular pricing field item can apply to a line item based on its
  * condition column.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  * @return bool
- *   Whether this action item should be applied.
+ *   Whether this pricing field item should be applied.
  */
-function cl_billing_pricing_check($action, $li_wrapper) {
-  // Skip validity check if the action expired.
-  if (!empty($action['expires']) && $action['expires'] < time()) {
+function cl_billing_pricing_check($pricing_field_item, $li_wrapper) {
+  // Skip validity check if the pricing field item expired.
+  if (!empty($pricing_field_item['expires']) && $pricing_field_item['expires'] < time()) {
     return FALSE;
   }
   // If the "custom" condition is used, then we look for a check matching
   // whatever is entered in the "custom" subfield.
-  $item_conditions = explode(':', $action['condition']);
+  $item_conditions = explode(':', $pricing_field_item['condition']);
   if ($item_conditions[0] == COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE) {
     array_shift($item_conditions);
   }
@@ -818,24 +816,24 @@ function cl_billing_pricing_check($action, $li_wrapper) {
     $cb = reset($functions);
   }
   else {
-    // No callback exists. This action cannot apply.
+    // No callback exists. This pricing field item cannot apply.
     return FALSE;
   }
 
-  return call_user_func($cb, $action, $li_wrapper);
+  return call_user_func($cb, $pricing_field_item, $li_wrapper);
 }
 
 /**
- * Check a usage group action for a line item.
+ * Check a usage group pricing field item for a line item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  * @return bool
  */
-function cl_billing_pricing_check_usage($action, $li_wrapper) {
-  $condition = explode(':', $action['condition']);
+function cl_billing_pricing_check_usage($pricing_field_item, $li_wrapper) {
+  $condition = explode(':', $pricing_field_item['condition']);
   array_shift($condition);
   $usage_group = reset($condition);
 
@@ -857,23 +855,23 @@ function cl_billing_pricing_check_usage($action, $li_wrapper) {
 }
 
 /**
- * Check a plan action for a line item.
+ * Check a plan pricing field item for a line item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  * @return bool
  */
-function cl_billing_pricing_check_plan($action, $li_wrapper) {
+function cl_billing_pricing_check_plan($pricing_field_item, $li_wrapper) {
   if ($li_wrapper->getBundle() != 'recurring' || !isset($li_wrapper->cl_billing_license)) {
     // This isn't a real recurring line item or has no plan attached (which is
     // bad.) Fail out.
     return FALSE;
   }
   // @todo: We are exploding the same thing for a second time.
-  // @todo: Something better needs to be done with $action array!!
-  $condition = explode(':', $action['condition']);
+  // @todo: Something better needs to be done with $pricing_field_item array!!
+  $condition = explode(':', $pricing_field_item['condition']);
   array_shift($condition);
   $product_id = reset($condition);
   if ($li_wrapper->cl_billing_license->product->raw() == $product_id) {
@@ -887,21 +885,21 @@ function cl_billing_pricing_check_plan($action, $li_wrapper) {
 }
 
 /**
- * Check a product action against a line item.
+ * Check a product pricing field item against a line item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  * @return bool
  */
-function cl_billing_pricing_check_product($action, $li_wrapper) {
+function cl_billing_pricing_check_product($pricing_field_item, $li_wrapper) {
   if ($li_wrapper->getBundle() != 'recurring' || !isset($li_wrapper->commerce_product)) {
     // This isn't a real recurring line item or has no product attached somehow,
     // which is bad. Fail out.
     return FALSE;
   }
-  $condition = explode(':', $action['condition']);
+  $condition = explode(':', $pricing_field_item['condition']);
   array_shift($condition);
   // This condition type stores the SKU as part of the condition key.
   $product_sku = reset($condition);
@@ -916,58 +914,58 @@ function cl_billing_pricing_check_product($action, $li_wrapper) {
 }
 
 /**
- * Apply a pricing action to a line item.
+ * Apply a pricing field item to a line item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  */
-function cl_billing_pricing_apply($action, $li_wrapper) {
-  $cb = 'cl_billing_pricing_apply_' . $action['action'];
+function cl_billing_pricing_apply($pricing_field_item, $li_wrapper) {
+  $cb = 'cl_billing_pricing_apply_' . $pricing_field_item['action'];
 
-  call_user_func($cb, $action, $li_wrapper);
+  call_user_func($cb, $pricing_field_item, $li_wrapper);
 }
 
 /**
- * Apply a base price action.
+ * Apply a base pricing field item.
  *
  * @param $action array
  *   A pricing action field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  */
-function cl_billing_pricing_apply_base_price($action, $li_wrapper) {
+function cl_billing_pricing_apply_base_price($pricing_field_item, $li_wrapper) {
   module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
-  commerce_line_item_unit_price_currency_code($li_wrapper->value(), $action['values']['currency_code']);
-  commerce_line_item_unit_price_amount($li_wrapper->value(), $action['values']['amount'], 'base_price', COMMERCE_ROUND_NONE);
+  commerce_line_item_unit_price_currency_code($li_wrapper->value(), $pricing_field_item['values']['currency_code']);
+  commerce_line_item_unit_price_amount($li_wrapper->value(), $pricing_field_item['values']['amount'], 'base_price', COMMERCE_ROUND_NONE);
 }
 
 /**
- * Apply a price add action.
+ * Apply a price add pricing field item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  */
-function cl_billing_pricing_apply_price_add($action, $li_wrapper) {
+function cl_billing_pricing_apply_price_add($pricing_field_item, $li_wrapper) {
   module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
-  commerce_line_item_unit_price_add($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_NONE);
+  commerce_line_item_unit_price_add($li_wrapper->value(), $pricing_field_item['values']['amount'], $pricing_field_item['component'], COMMERCE_ROUND_NONE);
 }
 
 /**
- * Apply a price multiply action.
+ * Apply a price multiply pricing field item.
  *
- * @param $action array
- *   A pricing action field item.
+ * @param $pricing_field_item array
+ *   A pricing field item.
  * @param $li_wrapper EntityDrupalWrapper
  *   A wrapped line item.
  * @return bool
  */
-function cl_billing_pricing_apply_price_multiply($action, $li_wrapper) {
+function cl_billing_pricing_apply_price_multiply($pricing_field_item, $li_wrapper) {
   module_load_include('inc', 'commerce_line_item', 'commerce_line_item.rules');
-  commerce_line_item_unit_price_multiply($li_wrapper->value(), $action['values']['amount'], $action['component'], COMMERCE_ROUND_HALF_UP);
+  commerce_line_item_unit_price_multiply($li_wrapper->value(), $pricing_field_item['values']['amount'], $pricing_field_item['component'], COMMERCE_ROUND_HALF_UP);
 }
 
 function _cl_billing_pricing_get_product_options($license_types) {
