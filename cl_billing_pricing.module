@@ -513,7 +513,6 @@ function cl_billing_pricing_conditions($instance) {
 
     // We mimic the autocomplete that would appear for products on a recurring
     // line item, because we're sneaky that way.
-    $product_field = field_info_field('commerce_product');
     $product_instance = field_info_instance('commerce_line_item', 'commerce_product', 'recurring');
     // Note that while commerce_product_reference needs to add element
     // validation to transform a SKU into a product ID and back again, we just
