@@ -267,8 +267,7 @@ function cl_billing_pricing_field_widget_form(&$form, &$form_state, $field, $ins
       );
     }
   }
-  // @todo: Temporary checking on #states and stuff.
-  dpm($field_elements);
+
   return $field_elements;
 }
 
