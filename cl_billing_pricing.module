@@ -267,8 +267,7 @@ function cl_billing_pricing_field_widget_form(&$form, &$form_state, $field, $ins
       );
     }
   }
-  // @todo: Temporary checking on #states and stuff.
-  dpm($field_elements);
+
   return $field_elements;
 }
 
@@ -361,6 +360,7 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
     '#type' => 'container',
     '#states' => $action_visible_states,
   );
+  $non_default_actions = [];
   foreach ($actions as $action_key => $action_type) {
     if (!empty($action_type['form_element'])) {
       $item_form['values'][$action_key] = $action_type['form_element'];
@@ -514,7 +514,6 @@ function cl_billing_pricing_conditions($instance) {
 
     // We mimic the autocomplete that would appear for products on a recurring
     // line item, because we're sneaky that way.
-    $product_field = field_info_field('commerce_product');
     $product_instance = field_info_instance('commerce_line_item', 'commerce_product', 'recurring');
     // Note that while commerce_product_reference needs to add element
     // validation to transform a SKU into a product ID and back again, we just
