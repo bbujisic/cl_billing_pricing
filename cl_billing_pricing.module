@@ -654,7 +654,7 @@ function cl_billing_pricing_commerce_product_update($product) {
 function cl_billing_pricing_actions() {
   // Provide enabled currencies only.
   $currencies = commerce_currencies(TRUE);
-  $currency_options = array('' => ' - ' . t('Default') . ' - ');
+  $currency_options = array(0 => ' - ' . t('Default') . ' - ');
   $currency_options += drupal_map_assoc(array_keys($currencies));
   $options = array(
     'base_price' => array(
