@@ -88,6 +88,15 @@ function cl_billing_pricing_data_property_info($name = NULL) {
   return $properties;
 }
 
+/**
+ * Implements hook_field_access().
+ */
+function cl_billing_pricing_field_access($op, $field, $entity_type, $entity, $account) {
+  if ($field['type'] == 'cl_billing_pricing') {
+    return user_access('administer licenses');
+  }
+}
+
 
 /**
  * Implements hook_form_FORM_ID_alter().
