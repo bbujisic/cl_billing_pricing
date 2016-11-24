@@ -6,7 +6,7 @@ This field type can be applied to license bundles or user accounts and handles v
 
 ## Getting started ##
 
-1. Install as usuall. See https://www.drupal.org/docs/7/extending-drupal-7/installing-contributed-modules-find-import-enable-configure-drupal-7 for details.
+1. Install as usual. See https://www.drupal.org/docs/7/extending-drupal-7/installing-contributed-modules-find-import-enable-configure-drupal-7 for details.
 2. To apply pricing logic to a user, go to admin/config/people/accounts/fields and add a field type "Recurring license pricing options".
 3. Edit the field and choose to which license types will the pricing logic be applied.
 4. Saving and returning to the edit for will open additional field "Licensable products". It will list all the products matching chosen license types and allow narrowing down available options in the widget. _Optional step._
