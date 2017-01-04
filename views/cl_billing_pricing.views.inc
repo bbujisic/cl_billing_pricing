@@ -10,7 +10,6 @@ function cl_billing_pricing_field_views_data($field) {
   $implemented = array(
     'condition' => [
       'field_handler' => 'views_handler_field',
-      'filter_handler' => 'views_handler_field',
     ],
     'action' => [
       'field_handler' => 'cl_billing_pricing_handler_field_action',
@@ -25,7 +24,6 @@ function cl_billing_pricing_field_views_data($field) {
     ],
     'weight' => [
       'field_handler' => 'views_handler_field_numeric',
-      'filter_handler' => 'views_handler_field_numeric',
     ],
   );
 
