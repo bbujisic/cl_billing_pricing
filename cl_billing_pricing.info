@@ -8,3 +8,6 @@ configure = admin/commerce/config/license-billing
 dependencies[] = commerce_license_billing
 
 files[] = cl_billing_pricing.theme.inc
+files[] = views/cl_billing_pricing_handler_field_clbp.inc
+files[] = views/cl_billing_pricing_handler_field_action.inc
+files[] = views/cl_billing_pricing_handler_filter_action.inc

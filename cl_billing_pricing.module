@@ -719,6 +719,20 @@ function cl_billing_pricing_actions() {
   return $options;
 }
 
+/**
+ * A helper function do display pricing actions formatted for select element.
+ *
+ * @return  array   Keys are machine names, values are labels.
+ */
+function _cl_billing_pricing_actions_options() {
+  $actions = cl_billing_pricing_actions();
+  $options = [];
+  foreach ($actions as $key => $action) {
+    $options[$key] = $action['label'];
+  }
+
+  return $options;
+}
 
 /********** Line item pricing logic **********/
 
