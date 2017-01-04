@@ -7,6 +7,16 @@
 
 define("COMMERCE_LICENSE_BILLING_PRICING_CUSTOM_TYPE", 'custom');
 
+/**
+ * Implements hook_views_api().
+ */
+function cl_billing_pricing_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'cl_billing_pricing') . '/views',
+  );
+}
+
 /********** Field Type API Hooks **********/
 
 /**
