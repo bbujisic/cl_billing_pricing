@@ -20,7 +20,7 @@ function cl_billing_pricing_field_views_data($field) {
       'filter_handler' => 'views_handler_filter_date',
     ],
     'data' => [
-      'field_handler' => 'views_handler_field_serialized',
+      'field_handler' => 'cl_billing_pricing_handler_field_data',
     ],
     'weight' => [
       'field_handler' => 'views_handler_field_numeric',
