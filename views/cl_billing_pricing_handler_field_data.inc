@@ -20,16 +20,15 @@ class cl_billing_pricing_handler_field_data extends views_handler_field_serializ
 
   }
 
-
   function render($values) {
     $value = $values->{$this->field_alias};
     $value = (array) unserialize($value);
 
-    if (empty($value['amount'])) {
+    if (!isset($value['amount'])) {
       return FALSE;
     }
 
-    if (isset($value['currency_code']) && !empty($value['amount'])) {
+    if (isset($value['currency_code'])) {
       if ($value['currency_code'] == 0) {
         $value['currency_code'] = commerce_default_currency();
       }
