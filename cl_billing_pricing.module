@@ -17,6 +17,18 @@ function cl_billing_pricing_views_api() {
   );
 }
 
+/**
+ * Implements hook_permission().
+ */
+function cl_billing_pricing_permission() {
+  return array(
+    'view billing pricing field' => array(
+      'title' => t('View Billing Pricing field'),
+      'description' => t('Access the Commerce License Billing Pricing field widget'),
+    ),
+  );
+}
+
 /********** Field Type API Hooks **********/
 
 /**
@@ -103,7 +115,7 @@ function cl_billing_pricing_data_property_info($name = NULL) {
  */
 function cl_billing_pricing_field_access($op, $field, $entity_type, $entity, $account) {
   if ($field['type'] == 'cl_billing_pricing') {
-    return user_access('administer licenses');
+    return user_access('view billing pricing field');
   }
 }
 
