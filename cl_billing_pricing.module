@@ -65,12 +65,12 @@ function cl_billing_pricing_field_info() {
 function cl_billing_pricing_property_info_callback(&$info, $entity_type, $field, $instance, $field_type) {
   $name = $field['field_name'];
   $property = &$info[$entity_type]['bundles'][$instance['bundle']]['properties'][$name];
-  
+
   $property['type'] = 'list<cl_billing_pricing>';
   $property['getter callback'] = 'entity_metadata_field_verbatim_get';
   $property['setter callback'] = 'entity_metadata_field_verbatim_set';
   $property['property info'] = cl_billing_pricing_data_property_info();
-  
+
   unset($property['query callback']);
 }
 
@@ -96,7 +96,7 @@ function cl_billing_pricing_data_property_info($name = NULL) {
       'label' => t('Weight'),
     ),
   );
-  
+
   // Add the default values for each of the field properties.
   foreach ($properties as &$value) {
     $value += array(
@@ -106,7 +106,7 @@ function cl_billing_pricing_data_property_info($name = NULL) {
       'setter callback' => 'entity_property_verbatim_set',
     );
   }
-  
+
   return $properties;
 }
 
@@ -161,7 +161,7 @@ function cl_billing_pricing_field_instance_settings_form($field, $instance) {
       '#title' => t('Valid License Types'),
     );
   }
-  
+
   // We want to allow filtering out some of the licensable products.
   if(!empty($settings['license_types'])) {
     $license_types = ($instance['entity_type'] == 'commerce_license') ? array($instance['bundle']) : $settings['license_types'];
@@ -174,7 +174,7 @@ function cl_billing_pricing_field_instance_settings_form($field, $instance) {
       '#default_value' => (!empty($settings['licensable_products']) ? $settings['licensable_products'] : NULL),
     );
   }
-  
+
   $form['component'] = array(
     '#type' => 'textfield',
     '#default_value' => (!empty($settings['component']) ? $settings['component'] : 'base_price'),
@@ -247,7 +247,7 @@ function cl_billing_pricing_field_widget_validate($element, &$form_state) {
     // This thing just uses the default as a single-value rather than array.
     $item['values'] = $element['values']['default']['#value'];
   }
-  
+
   if(!empty($element['expires']['#value']['date'])) {
     // The action expires 86399 seconds after the beginning of expiry day in timezone of the website.
     $tz_user = date_default_timezone_get();
@@ -259,7 +259,7 @@ function cl_billing_pricing_field_widget_validate($element, &$form_state) {
   else {
     $item['expires'] = NULL;
   }
-  
+
   $item['weight'] = $element['weight']['#value'];
 
   foreach ($item as $key => $val) {
@@ -526,7 +526,7 @@ function cl_billing_pricing_field_item_form($field, $instance, $langcode, $curre
       $item_form['values']['default']['#default_value'] = $current_item['values'];
     }
   }
-  
+
   // Expiry times are being stored as last second of the given date, relative to site's timezone.
   $default_date = '';
   if(!empty($current_item['expires'])) {
@@ -590,7 +590,7 @@ function cl_billing_pricing_conditions($instance) {
     // If the field is on a user, the bundle will have instance settings
     // defining the license types to get plans for.
     $license_types = ($instance['entity_type'] == 'commerce_license') ? array($instance['bundle']) : $instance['settings']['license_types'];
-  
+
     $options = _cl_billing_pricing_get_product_options($license_types);
     if (!empty($instance['settings']['licensable_products'])) {
       $allowed_options = $instance['settings']['licensable_products'];
@@ -762,34 +762,46 @@ function _cl_billing_pricing_actions_options() {
  * Main pricing callback for line items. Used as a rules action callback. Loops
  * through all possible pricing items defined on any license or account field to
  * which the line item belongs, checks their validity, and then applies the
- * actions for all valid items found.
+ * actions for all valid items found. Also allows hooks to define other entities
+ * from which related pricing rules can be gathered.
  */
 function cl_billing_pricing_process_line_item($line_item) {
 
+  // Do a bit of setup.
   $li_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
-  // These make convenient booleans!
-  $order = $li_wrapper->order->value();
-  $license = $li_wrapper->cl_billing_license->value();
-
-  // @todo: Figure out what kind of line item this is (usage or plan).
-  // @todo: Remember why I made this comment - it looks like we don't need to do
-  // this here.
-
+  $selected_pricing_field_items = array();
+  $entities = [];
   // The names of all fields of this type which exist:
   $pricing_fields = field_read_fields(array('type' => 'cl_billing_pricing'));
-  
-  $selected_pricing_field_items = array();
 
-  // Figure out if the license *has* any cl_billing_pricing-type fields.
+  // By default, we supply the license and the account objects
+  $order = $li_wrapper->order->value();
+  if ($order) {
+    $entities[] = ['user', $li_wrapper->order->owner->value()];
+  }
+  $license = $li_wrapper->cl_billing_license->value();
   if ($license) {
-    $license_instances = field_info_instances('commerce_license', $license->type);
-    foreach ($license_instances as $fieldname => $instance) {
+    $entities[] = ['commerce_license', $license];
+  }
+
+  // We allow other parts of the system to determine which entities to load
+  // pricing items from as well. Each item should be a pair of the form
+  // [$entity_type, $entity]. This allows other code to attach pricing
+  // fields to entities other than the license and the owner, depending
+  // on the line item being priced.
+  drupal_alter('cl_billing_pricing_entities', $entities, $li_wrapper);
+
+  foreach ($entities as $entity_pair) {
+    list($entity_type, $entity) = $entity_pair;
+    list(, , $bundle) = entity_extract_ids($entity_type, $entity);
+    $current_instances = field_info_instances($entity_type, $bundle);
+    foreach ($current_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
-        $new_pricing_field_items = $li_wrapper->cl_billing_license->{$fieldname}->value();
+        $new_pricing_field_items = field_get_items($entity_type, $entity, $fieldname);
         foreach ($new_pricing_field_items as $key => $pricing_field_item) {
           $pricing_field_item['component'] = $instance['settings']['component'];
-          $pricing_field_item['group'] = 'license';
+          $pricing_field_item['group'] = $entity_type;
           // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
           if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
             $selected_pricing_field_items[] = $pricing_field_item;
@@ -799,31 +811,13 @@ function cl_billing_pricing_process_line_item($line_item) {
     }
   }
 
-  // Do the same thing for the order owner, if any.
-  if ($order) {
-    list(, , $account_type) = entity_extract_ids('user', $li_wrapper->order->owner);
-    $account_instances = field_info_instances('user', $account_type);
-    foreach ($account_instances as $fieldname => $instance) {
-      if (!empty($pricing_fields[$fieldname])) {
-        $new_pricing_field_items = $li_wrapper->order->owner->{$fieldname}->value();
-        foreach ($new_pricing_field_items as $key => $pricing_field_item) {
-          $pricing_field_item['component'] = $instance['settings']['component'];
-          $pricing_field_item['group'] = 'account';
-          // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
-          if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
-            $selected_pricing_field_items[] = $pricing_field_item;
-          }
-        }
-      }
-    }
-  }
   // Sort selected pricing field items by weight.
   usort($selected_pricing_field_items, function($a, $b) { return $a['weight'] - $b['weight']; });
   // Apply pricing rules to line items.
   foreach ($selected_pricing_field_items as $pricing_field_item) {
     cl_billing_pricing_apply($pricing_field_item, $li_wrapper);
   }
-  
+
   return;
 }
 
@@ -1020,7 +1014,7 @@ function _cl_billing_pricing_get_product_options($license_types) {
   $results = $efq->execute();
   $products = !empty($results['commerce_product']) ? commerce_product_load_multiple(array_keys($results['commerce_product'])) : array();
   $options = array_map(function($product) { return $product->title; }, $products);
-  
+
   return $options;
 }
 
