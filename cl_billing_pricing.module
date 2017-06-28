@@ -138,8 +138,8 @@ function cl_billing_pricing_form_field_ui_field_edit_form_alter(&$form, &$form_s
  * Implements hook_field_instance_settings_form().
  */
 function cl_billing_pricing_field_instance_settings_form($field, $instance) {
-  if ($instance['entity_type'] == 'user') {
-    // If the instance is on a user entity, then we need to pick which license
+  if ($instance['entity_type'] != 'license') {
+    // If the instance is not a license entity, then we need to pick which license
     // types it regards as valid so that plans and usage groups can be summoned
     // appropriately.
     $types = &drupal_static(__FUNCTION__, array());
@@ -798,13 +798,14 @@ function cl_billing_pricing_process_line_item($line_item) {
     foreach ($current_instances as $fieldname => $instance) {
       if (!empty($pricing_fields[$fieldname])) {
         // This is a pricing field. Grab its items and stack them.
-        $new_pricing_field_items = field_get_items($entity_type, $entity, $fieldname);
-        foreach ($new_pricing_field_items as $key => $pricing_field_item) {
-          $pricing_field_item['component'] = $instance['settings']['component'];
-          $pricing_field_item['group'] = $entity_type;
-          // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
-          if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
-            $selected_pricing_field_items[] = $pricing_field_item;
+        if ($new_pricing_field_items = field_get_items($entity_type, $entity, $fieldname)) {
+          foreach ($new_pricing_field_items as $key => $pricing_field_item) {
+            $pricing_field_item['component'] = $instance['settings']['component'];
+            $pricing_field_item['group'] = $entity_type;
+            // Check the validity of each desired pricing field item from the cl_billing_pricing field type.
+            if (cl_billing_pricing_check($pricing_field_item, $li_wrapper)) {
+              $selected_pricing_field_items[] = $pricing_field_item;
+            }
           }
         }
       }
@@ -902,7 +903,7 @@ function cl_billing_pricing_check_usage($pricing_field_item, $li_wrapper) {
  * @return bool
  */
 function cl_billing_pricing_check_plan($pricing_field_item, $li_wrapper) {
-  if ($li_wrapper->getBundle() != 'recurring' || !isset($li_wrapper->cl_billing_license)) {
+  if ($li_wrapper->getBundle() != 'recurring' || !$li_wrapper->cl_billing_license->value()) {
     // This isn't a real recurring line item or has no plan attached (which is
     // bad.) Fail out.
     return FALSE;
